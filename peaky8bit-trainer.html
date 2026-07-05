@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Peaky 8-bit Chord Trainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0f1b14;          /* matte PCB dark green */
+  --panel:#15231a;
+  --panel2:#1a2b20;
+  --trace:#2b4534;       /* dim copper trace lines */
+  --silk:#e9f1e4;        /* silkscreen white */
+  --dim:#8ba695;
+  --copper:#d98e3f;      /* copper accent */
+  --gold:#efc26b;        /* ENIG pad */
+  --ok:#7adb8f;          /* status LED green */
+  --err:#ff6b5e;
+  --led-off:#233529;
+  --radius:10px;
+  --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+  --disp:'Chakra Petch','Noto Sans JP',sans-serif;
+  --jp:'Noto Sans JP',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);
+  background-image:
+    radial-gradient(circle at 15% 10%, rgba(122,219,143,.05), transparent 40%),
+    linear-gradient(var(--trace) 1px, transparent 1px),
+    linear-gradient(90deg, var(--trace) 1px, transparent 1px);
+  background-size:auto,64px 64px,64px 64px;
+  color:var(--silk);
+  font-family:var(--mono);
+  font-size:15px;
+  display:flex;flex-direction:column;align-items:center;
+  padding:20px 14px 60px;
+}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;
+  background:linear-gradient(var(--bg),transparent 8%,transparent 92%,var(--bg));opacity:.6}
+.wrap{width:100%;max-width:900px;position:relative;z-index:1}
+
+/* ── header ─────────────────────────── */
+header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:18px;
+  border-bottom:2px solid var(--trace);padding-bottom:12px}
+h1{font-family:var(--disp);font-weight:700;font-size:26px;letter-spacing:.04em}
+h1 .bit{color:var(--copper)}
+.ver{color:var(--dim);font-size:12px}
+.spacer{flex:1}
+.seg{display:flex;border:1px solid var(--trace);border-radius:8px;overflow:hidden}
+.seg button{background:transparent;border:0;color:var(--dim);font-family:var(--mono);
+  font-size:13px;padding:7px 14px;cursor:pointer}
+.seg button.on{background:var(--copper);color:#1c1207;font-weight:600}
+.seg.lang button{padding:7px 10px}
+
+/* ── control row ────────────────────── */
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;align-items:center}
+select,button.btn{
+  background:var(--panel);border:1px solid var(--trace);color:var(--silk);
+  font-family:var(--mono);font-size:13px;padding:8px 12px;border-radius:8px;cursor:pointer}
+select:focus-visible,button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+button.btn.primary{background:var(--copper);color:#1c1207;border-color:var(--copper);font-weight:600}
+label.chk{display:flex;align-items:center;gap:6px;color:var(--dim);font-size:12px;cursor:pointer}
+
+/* ── target card ────────────────────── */
+.target{
+  background:var(--panel);border:1px solid var(--trace);border-radius:var(--radius);
+  padding:22px 24px;text-align:center;margin-bottom:16px;position:relative;overflow:hidden}
+.target::before{content:"TARGET";position:absolute;top:8px;left:12px;font-size:10px;
+  letter-spacing:.25em;color:var(--dim)}
+.armed-badge{position:absolute;top:8px;right:12px;font-size:11px;letter-spacing:.15em;
+  color:var(--gold);border:1px solid var(--gold);border-radius:4px;padding:2px 8px;display:none}
+.armed-badge.show{display:inline-block;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.35}}
+.glyph{font-family:var(--disp);font-size:64px;font-weight:700;line-height:1.15;min-height:76px}
+.glyph .done{color:var(--ok)}
+.glyph .cur{color:var(--gold);text-decoration:underline;text-underline-offset:8px;text-decoration-thickness:3px}
+.glyph .rest{color:var(--dim)}
+.sub{color:var(--dim);font-size:13px;margin-top:6px;font-family:var(--jp)}
+.sub b{color:var(--copper);font-family:var(--mono)}
+.flash-ok{animation:fok .35s}
+.flash-err{animation:ferr .4s}
+@keyframes fok{0%{box-shadow:0 0 0 0 rgba(122,219,143,.7)}100%{box-shadow:0 0 0 18px rgba(122,219,143,0)}}
+@keyframes ferr{0%,60%{border-color:var(--err)}25%{transform:translateX(-5px)}50%{transform:translateX(5px)}}
+
+/* ── board area: controllers + bit readout ── */
+.board{display:grid;grid-template-columns:1fr auto 1fr;gap:16px;align-items:center;margin-bottom:16px}
+.hand{background:var(--panel2);border:1px solid var(--trace);border-radius:26px;
+  padding:16px 14px;display:flex;flex-direction:column;gap:10px;position:relative}
+.hand .hlabel{text-align:center;font-size:11px;letter-spacing:.2em;color:var(--dim);margin-bottom:2px;font-family:var(--jp)}
+.key{
+  height:52px;border-radius:10px;border:1px solid var(--trace);
+  background:linear-gradient(#233529,#1a2a20);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 12px;font-size:13px;color:var(--dim);
+  transition:background .08s,border-color .08s,transform .05s}
+.key .sw{font-weight:600;color:var(--silk)}
+.key .bind{font-size:11px;opacity:.7}
+.key.hint{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold);color:var(--gold)}
+.key.hint .sw{color:var(--gold)}
+.key.press{background:var(--copper);border-color:var(--copper);transform:translateY(2px)}
+.key.press .sw,.key.press .bind{color:#1c1207}
+
+/* signature: 8-bit LED debug readout */
+.readout{display:flex;flex-direction:column;align-items:center;gap:8px;min-width:210px}
+.leds{display:flex;gap:7px;background:#0b140f;border:1px solid var(--trace);
+  border-radius:8px;padding:12px 14px}
+.leds .gap{width:8px}
+.led{width:14px;height:14px;border-radius:50%;background:var(--led-off);
+  border:1px solid #000;box-shadow:inset 0 1px 2px rgba(0,0,0,.7);transition:all .07s}
+.led.on{background:var(--ok);box-shadow:0 0 8px var(--ok),0 0 2px var(--ok)}
+.led.hint-on{background:transparent;border-color:var(--gold);box-shadow:inset 0 0 0 2px var(--gold)}
+.led.on.hint-on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.hexval{font-size:22px;font-weight:600;color:var(--copper);letter-spacing:.08em}
+.bitlbl{display:flex;gap:7px;padding:0 14px;font-size:9px;color:var(--dim)}
+.bitlbl span{width:14px;text-align:center}
+.bitlbl .gap{width:8px}
+
+/* ── stats ──────────────────────────── */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+.stat{background:var(--panel);border:1px solid var(--trace);border-radius:var(--radius);
+  padding:10px 14px;text-align:center}
+.stat .v{font-family:var(--disp);font-size:24px;font-weight:600;color:var(--silk)}
+.stat .k{font-size:11px;color:var(--dim);font-family:var(--jp)}
+.progress{height:6px;background:var(--led-off);border-radius:3px;overflow:hidden;margin-bottom:16px}
+.progress i{display:block;height:100%;background:var(--copper);width:0%;transition:width .2s}
+
+/* ── log / summary / help ───────────── */
+.msg{font-family:var(--jp);color:var(--dim);font-size:13px;text-align:center;min-height:20px;margin-bottom:14px}
+.msg .err{color:var(--err)}
+.summary{background:var(--panel);border:1px solid var(--gold);border-radius:var(--radius);
+  padding:20px 24px;margin-bottom:16px;display:none;font-family:var(--jp)}
+.summary h2{font-family:var(--disp);color:var(--gold);font-size:18px;margin-bottom:10px}
+.summary table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px;margin-top:8px}
+.summary td,.summary th{padding:4px 8px;border-bottom:1px solid var(--trace);text-align:left}
+details{background:var(--panel);border:1px solid var(--trace);border-radius:var(--radius);
+  padding:14px 18px;margin-bottom:14px;font-family:var(--jp);font-size:13px;color:var(--dim)}
+details summary{cursor:pointer;color:var(--silk);font-weight:500}
+details table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;margin-top:10px}
+details td,details th{padding:3px 8px;border-bottom:1px solid var(--trace);text-align:left;color:var(--silk)}
+details th{color:var(--dim);font-weight:400}
+kbd{background:var(--led-off);border:1px solid var(--trace);border-radius:4px;padding:1px 6px;font-family:var(--mono);font-size:12px;color:var(--silk)}
+textarea{width:100%;height:120px;background:#0b140f;color:var(--silk);border:1px solid var(--trace);
+  border-radius:8px;font-family:var(--mono);font-size:11px;padding:8px;margin-top:8px}
+
+@media (max-width:700px){
+  .board{grid-template-columns:1fr 1fr;grid-template-rows:auto auto}
+  .readout{grid-column:1/3;grid-row:1;min-width:0}
+  .glyph{font-size:44px}
+  .stats{grid-template-columns:repeat(2,1fr)}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>PEAKY <span class="bit">8-BIT</span> TRAINER</h1>
+  <span class="ver">keymap v0.4</span>
+  <span class="spacer"></span>
+  <div class="seg" role="group" aria-label="Input mode">
+    <button id="modeSim" class="on">シミュレーション</button>
+    <button id="modeDev">実機モード</button>
+  </div>
+  <div class="seg lang" role="group" aria-label="Language">
+    <button id="langJa" class="on">JA</button>
+    <button id="langEn">EN</button>
+  </div>
+</header>
+
+<div class="controls">
+  <select id="lesson" aria-label="Lesson"></select>
+  <select id="hintMode" aria-label="Hints">
+    <option value="always"></option>
+    <option value="miss"></option>
+    <option value="off"></option>
+  </select>
+  <button class="btn primary" id="startBtn"></button>
+  <span class="spacer"></span>
+  <label class="chk"><input type="checkbox" id="revL"><span id="revLTxt"></span></label>
+  <label class="chk"><input type="checkbox" id="revR"><span id="revRTxt"></span></label>
+</div>
+
+<div class="target" id="targetCard">
+  <span class="armed-badge" id="armedBadge">SHIFT ARMED</span>
+  <div class="glyph" id="glyph">—</div>
+  <div class="sub" id="sub"></div>
+</div>
+
+<div class="board">
+  <div class="hand" id="handL">
+    <div class="hlabel" id="hlL"></div>
+  </div>
+  <div class="readout">
+    <div class="bitlbl"><span>b7</span><span>b6</span><span>b5</span><span>b4</span><span class="gap"></span><span>b3</span><span>b2</span><span>b1</span><span>b0</span></div>
+    <div class="leds" id="leds"></div>
+    <div class="hexval" id="hexval">0x00</div>
+  </div>
+  <div class="hand" id="handR">
+    <div class="hlabel" id="hlR"></div>
+  </div>
+</div>
+
+<div class="progress"><i id="progBar"></i></div>
+<div class="msg" id="msg"></div>
+
+<div class="stats">
+  <div class="stat"><div class="v" id="stAcc">–</div><div class="k" id="kAcc"></div></div>
+  <div class="stat"><div class="v" id="stCpm">–</div><div class="k" id="kCpm"></div></div>
+  <div class="stat"><div class="v" id="stStreak">0</div><div class="k" id="kStreak"></div></div>
+  <div class="stat"><div class="v" id="stMiss">0</div><div class="k" id="kMiss"></div></div>
+</div>
+
+<div class="summary" id="summary"></div>
+
+<details>
+  <summary id="helpSummary"></summary>
+  <div id="helpBody"></div>
+</details>
+
+<details>
+  <summary id="refSummary"></summary>
+  <div id="refTable"></div>
+</details>
+
+<details>
+  <summary id="csvSummary"></summary>
+  <p style="margin-top:8px" id="csvDesc"></p>
+  <textarea id="csvBox" spellcheck="false"></textarea>
+  <div style="margin-top:8px"><button class="btn" id="csvApply"></button> <span id="csvMsg"></span></div>
+</details>
+</div>
+
+<script>
+/* ═══════════════ keymap v0.4 (docs/keymap_v04.csv そのまま / verbatim) ═══════════════ */
+const KEYMAP_CSV = `hex,layer1,with_shift,with_ctrl
+0x09,key:TAB,,
+0x0A,key:LGUI,,
+0x0B,key:BSPC,,
+0x0C,key:SPACE,,
+0x0D,key:K_APP,,
+0x0E,key:ESC,,
+0x0F,key:DEL,,
+0x11,write:a,write:A,keys:LCTRL+A
+0x12,write:b,write:B,keys:LCTRL+B
+0x13,write:c,write:C,keys:LCTRL+C
+0x14,write:d,write:D,keys:LCTRL+D
+0x15,write:e,write:E,keys:LCTRL+E
+0x16,write:f,write:F,keys:LCTRL+F
+0x17,write:g,write:G,keys:LCTRL+G
+0x18,write:h,write:H,keys:LCTRL+H
+0x19,write:i,write:I,keys:LCTRL+I
+0x1A,write:j,write:J,keys:LCTRL+J
+0x1B,write:k,write:K,keys:LCTRL+K
+0x1C,write:l,write:L,keys:LCTRL+L
+0x1D,write:m,write:M,keys:LCTRL+M
+0x1E,"write:,","write:,",
+0x1F,ime,ime,
+0x21,write:n,write:N,keys:LCTRL+N
+0x22,write:o,write:O,keys:LCTRL+O
+0x23,write:p,write:P,keys:LCTRL+P
+0x24,write:q,write:Q,keys:LCTRL+Q
+0x25,write:r,write:R,keys:LCTRL+R
+0x26,write:s,write:S,keys:LCTRL+S
+0x27,write:t,write:T,keys:LCTRL+T
+0x28,write:u,write:U,keys:LCTRL+U
+0x29,write:v,write:V,keys:LCTRL+V
+0x2A,write:w,write:W,keys:LCTRL+W
+0x2B,write:x,write:X,keys:LCTRL+X
+0x2C,write:y,write:Y,keys:LCTRL+Y
+0x2D,write:z,write:Z,keys:LCTRL+Z
+0x2E,write:.,write:.,
+0x2F,write:!,write:!,
+0x31,write:?,write:?,
+0x32,write:~,write:~,
+0x33,write:@,write:@,
+0x34,write:_,write:_,
+0x35,"write:""","write:""",
+0x36,write:/,write:/,
+0x37,write:*,write:*,
+0x38,write:=,write:=,
+0x39,write:+,write:+,
+0x3A,write:-,write:-,
+0x3B,write:%,write:%,
+0x3C,write:\`,write:\`,
+0x3D,write:\\,write:\\,
+0x3E,keys:LSHIFT+TAB,,
+0x3F,keys:LCTRL+TAB,,
+0x41,write:&,write:&,
+0x42,write:#,write:#,
+0x43,write:$,write:$,
+0x44,write:',write:',
+0x45,write:^,write:^,
+0x46,write:(,write:(,
+0x47,write:),write:),
+0x48,write:[,write:[,
+0x49,write:{,write:{,
+0x4A,write:],write:],
+0x4B,write:},write:},
+0x4C,write:<,write:<,
+0x4D,write:>,write:>,
+0x4E,write:;,write:;,
+0x4F,write::,write::,
+0x82,mod:Alt,,
+0x84,mod:Ctrl,,
+0x86,mod:Ctrl+Alt,,
+0x88,mod:Shift,,
+0x8A,mod:Shift+Alt,,
+0x8C,mod:Shift+Ctrl,,
+0x8E,mod:Shift+Ctrl+Alt,,
+0x91,write:1,key:F1,
+0x92,write:2,key:F2,
+0x93,write:3,key:F3,
+0x94,write:4,key:F4,
+0x95,write:5,key:F5,
+0x96,write:6,key:F6,
+0x97,write:7,key:F7,
+0x98,write:8,key:F8,
+0x99,write:9,key:F9,
+0x9A,write:0,key:F10,
+0x9B,,key:F11,
+0x9C,,key:F12,
+0xB0,key:UP,,
+0xC0,key:DOWN,,
+0xD0,key:LEFT,,
+0xE0,key:RIGHT,,
+0xF0,key:RET,,`;
+
+/* ═══════════════ i18n ═══════════════ */
+let lang='en';
+const I18N={
+ja:{
+  modeSim:'シミュレーション',modeDev:'実機モード',
+  hintAlways:'ヒント: 常に表示',hintMiss:'ヒント: ミス後のみ',hintOff:'ヒント: なし',
+  start:'スタート',again:'もう一度',apply:'適用',
+  revL:'左手 SW反転',revR:'右手 SW反転',
+  handL:'LEFT ── 左手',handR:'RIGHT ── 右手',
+  idle:'レッスンを選んで「スタート」',
+  kAcc:'正確率',kCpm:'chords/min',kStreak:'連続正解',kMiss:'ミス',
+  stepArm:'Shiftをarm',stepChar:'文字を入力',
+  step:(a,b,w)=>`ステップ ${a}/${b}（${w}） `,
+  chordLbl:(hx)=>`chord <b>${hx}</b>`,
+  missPrefix:'ミス: ',
+  wrongChord:(hx,got,want)=>`${hx} → ${got}　正解は ${want}`,
+  needlessArm:(hx,act)=>`${hx} → ${act}（不要なarm）`,
+  unassigned:'(未割り当て)',
+  inputWas:(k)=>`入力: ${k}`,
+  inputWant:(k,w)=>`入力: ${k}　正解: ${w}`,
+  armCancel:'armをキャンセルしました',
+  imeOn:'IMEがONのようです。直接入力に切り替えてください。',
+  devHint:'実機モード: IMEをOFF（直接入力）にして、このページをクリックしてから入力してください。',
+  devStart:'IMEはOFFで！ このページにフォーカスして入力開始。',
+  sumTitle:'セッション完了',
+  sumLine:(h,m,acc,cpm)=>`正解 ${h} chord / ミス ${m}（正確率 ${acc}%）・ 速度 ${cpm} chords/min`,
+  sumWorst:'苦手だったターゲット:',sumMiss:'miss',
+  sumPerfect:'ノーミス、完璧です 🎉',
+  done:'おつかれさまでした',
+  helpSummary:'使い方',
+  refSummary:'Chord一覧（keymap v0.4）',
+  refCols:['hex','bit(L|R)','base','+Shift','+Ctrl'],
+  csvSummary:'キーマップCSVを差し替える（開発用）',
+  csvDesc:'keymap_vXX.csv の内容を貼り付けて「適用」を押すと、このセッション中だけ新しいマップで練習できます（恒久的に使うにはHTML内の KEYMAP_CSV を書き換えてください）。',
+  csvOk:(n)=>`適用しました（${n} chords）`,
+  csvErr:'パースに失敗しました',
+  helpBody:`
+  <p style="margin-top:10px">
+  <b style="color:var(--silk)">シミュレーションモード:</b>
+  PCキーボードで左手 <kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd> = 左SW1〜4（bit7〜4）、
+  右手 <kbd>J</kbd><kbd>K</kbd><kbd>L</kbd><kbd>;</kbd> = 右SW1〜4（bit3〜0）。
+  実機のファームウェアと同じく、<b style="color:var(--gold)">押したキーをすべて離した瞬間</b>にchordが確定します。
+  実機と指の並びが逆に感じる場合は「SW反転」をオンにしてください。</p>
+  <p style="margin-top:8px">
+  <b style="color:var(--silk)">実機モード:</b>
+  Peaky 8-bit をBluetooth接続し、このページをクリックしてフォーカスした状態で入力します。
+  実際に出力された文字・キーで判定します。<b style="color:var(--err)">IMEは必ずOFF（直接入力/半角英数）</b>にしてください。</p>
+  <p style="margin-top:8px">
+  <b style="color:var(--silk)">Shift arm:</b> 大文字レッスンでは、まずchord <b style="color:var(--copper)">0x88</b>（左SW1+右SW1）でShiftをarmし、続けて文字のchordを入力します（2打）。armは <b style="color:var(--copper)">0x0E</b>（Esc）でキャンセル。実機モードでは本体側でarmされるため、出力された大文字で判定します。</p>`,
+},
+en:{
+  modeSim:'Simulation',modeDev:'Real device',
+  hintAlways:'Hints: always',hintMiss:'Hints: after a miss',hintOff:'Hints: off',
+  start:'Start',again:'Try again',apply:'Apply',
+  revL:'Reverse left SW order',revR:'Reverse right SW order',
+  handL:'LEFT HAND',handR:'RIGHT HAND',
+  idle:'Pick a lesson and press "Start"',
+  kAcc:'Accuracy',kCpm:'chords/min',kStreak:'Streak',kMiss:'Misses',
+  stepArm:'arm Shift',stepChar:'enter the character',
+  step:(a,b,w)=>`Step ${a}/${b} (${w}) `,
+  chordLbl:(hx)=>`chord <b>${hx}</b>`,
+  missPrefix:'Miss: ',
+  wrongChord:(hx,got,want)=>`${hx} → ${got} — expected ${want}`,
+  needlessArm:(hx,act)=>`${hx} → ${act} (unneeded arm)`,
+  unassigned:'(unassigned)',
+  inputWas:(k)=>`got: ${k}`,
+  inputWant:(k,w)=>`got: ${k} — expected: ${w}`,
+  armCancel:'Arm cancelled',
+  imeOn:'Your IME seems to be ON. Switch to direct (half-width) input.',
+  devHint:'Real device mode: turn your IME OFF (direct input), click this page to focus, then type.',
+  devStart:'IME OFF, please! Focus this page and start typing.',
+  sumTitle:'Session complete',
+  sumLine:(h,m,acc,cpm)=>`${h} correct chords / ${m} misses (${acc}% accuracy) · ${cpm} chords/min`,
+  sumWorst:'Weakest targets:',sumMiss:'miss',
+  sumPerfect:'Zero misses — flawless 🎉',
+  done:'Nice work!',
+  helpSummary:'How to use',
+  refSummary:'Chord reference (keymap v0.4)',
+  refCols:['hex','bits (L|R)','base','+Shift','+Ctrl'],
+  csvSummary:'Replace keymap CSV (dev)',
+  csvDesc:'Paste the contents of keymap_vXX.csv and press "Apply" to practice with a new map for this session (to make it permanent, edit the KEYMAP_CSV constant inside this HTML).',
+  csvOk:(n)=>`Applied (${n} chords)`,
+  csvErr:'Failed to parse CSV',
+  helpBody:`
+  <p style="margin-top:10px">
+  <b style="color:var(--silk)">Simulation mode:</b>
+  on your PC keyboard, left hand <kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd> = left SW1–4 (bits 7–4),
+  right hand <kbd>J</kbd><kbd>K</kbd><kbd>L</kbd><kbd>;</kbd> = right SW1–4 (bits 3–0).
+  Just like the firmware, a chord is committed <b style="color:var(--gold)">the moment you release all held keys</b>.
+  If the finger order feels reversed compared to the real device, enable "Reverse SW order".</p>
+  <p style="margin-top:8px">
+  <b style="color:var(--silk)">Real device mode:</b>
+  connect the Peaky 8-bit over Bluetooth, click this page to focus it, and type.
+  Judging is based on the characters/keys the device actually outputs. <b style="color:var(--err)">Your IME must be OFF (direct input)</b>.</p>
+  <p style="margin-top:8px">
+  <b style="color:var(--silk)">Shift arm:</b> in the Capitals lesson, first send chord <b style="color:var(--copper)">0x88</b> (left SW1 + right SW1) to arm Shift, then the letter chord (two strokes). Cancel an arm with <b style="color:var(--copper)">0x0E</b> (Esc). In real-device mode the device itself handles arming, so judging uses the capital letter it outputs.</p>`,
+},
+};
+const t=k=>I18N[lang][k];
+
+/* ═══════════════ CSV parse ═══════════════ */
+function parseCsvLine(line){
+  const out=[];let cur='',q=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(q){ if(c==='"'){ if(line[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else{ if(c==='"')q=true; else if(c===','){out.push(cur);cur='';} else cur+=c; }
+  }
+  out.push(cur);return out;
+}
+function parseKeymap(csv){
+  const map={};
+  const lines=csv.trim().split(/\r?\n/);
+  for(let i=1;i<lines.length;i++){
+    if(!lines[i].trim())continue;
+    const [hex,base,sh,ct]=parseCsvLine(lines[i]);
+    map[parseInt(hex,16)]={base:base||null,shift:sh||null,ctrl:ct||null};
+  }
+  return map;
+}
+let KEYMAP=parseKeymap(KEYMAP_CSV);
+
+function actionForMask(mask,armed){
+  const e=KEYMAP[mask]; if(!e)return null;
+  if(armed==='Shift'&&e.shift)return e.shift;
+  if(armed==='Ctrl'&&e.ctrl)return e.ctrl;
+  return e.base;
+}
+function maskForAction(action){
+  for(const k in KEYMAP){ if(KEYMAP[k].base===action)return +k; }
+  return null;
+}
+function maskForShiftAction(action){
+  for(const k in KEYMAP){ if(KEYMAP[k].shift===action)return +k; }
+  return null;
+}
+
+/* ═══════════════ lessons ═══════════════ */
+function charTarget(ch){
+  return {label:ch, seq:[{mask:maskForAction('write:'+ch)}],
+          deviceExpect:{type:'char',v:ch}};
+}
+function capitalTarget(ch){
+  const up=ch.toUpperCase();
+  return {label:up, seq:[{mask:0x88},{mask:maskForShiftAction('write:'+up),armed:'Shift'}],
+          deviceExpect:{type:'char',v:up}};
+}
+const CTRL_KEYS=[
+  ['Tab','key:TAB','Tab'],['Space','key:SPACE',' '],['BackSpace','key:BSPC','Backspace'],
+  ['Esc','key:ESC','Escape'],['Delete','key:DEL','Delete'],['Enter','key:RET','Enter'],
+  ['↑','key:UP','ArrowUp'],['↓','key:DOWN','ArrowDown'],['←','key:LEFT','ArrowLeft'],['→','key:RIGHT','ArrowRight'],
+];
+function keyTarget([label,action,evKey]){
+  return {label, seq:[{mask:maskForAction(action)}], deviceExpect:{type:'key',v:evKey}};
+}
+function wordTarget(w){
+  return {label:w, word:true,
+    seq:[...w].map(c=>({mask:maskForAction('write:'+c)})),
+    deviceExpect:{type:'word',v:w}};
+}
+const LETTERS='abcdefghijklmnopqrstuvwxyz';
+const SYMS1=[',','.','!','?','~','@','_','"','/','*','=','+','-','%','`','\\'];
+const SYMS2=['&','#','$',"'",'^','(',')','[','{',']','}','<','>',';',':'];
+const WORDS=['the','and','you','that','with','this','have','from','they','code','make','time','work','hand','type','key','chord','build','print','input','model','sound','world','right','left'];
+const shuffle=a=>{a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};
+function pickN(arr,n){const s=shuffle(arr);while(s.length<n)s.push(...shuffle(arr));return s.slice(0,n);}
+
+const LESSONS=[
+  {id:'am',  ja:'英字 a–m',              en:'Letters a–m',            gen:()=>pickN([...'abcdefghijklm'],20).map(charTarget)},
+  {id:'nz',  ja:'英字 n–z',              en:'Letters n–z',            gen:()=>pickN([...'nopqrstuvwxyz'],20).map(charTarget)},
+  {id:'az',  ja:'英字 a–z 総合',         en:'Letters a–z (all)',      gen:()=>pickN([...LETTERS],26).map(charTarget)},
+  {id:'num', ja:'数字 0–9',              en:'Numbers 0–9',            gen:()=>pickN([...'0123456789'],20).map(charTarget)},
+  {id:'sym1',ja:'記号 その1',            en:'Symbols 1',              gen:()=>pickN(SYMS1,20).map(charTarget)},
+  {id:'sym2',ja:'記号 その2（括弧など）',en:'Symbols 2 (brackets…)',  gen:()=>pickN(SYMS2,20).map(charTarget)},
+  {id:'cap', ja:'大文字（Shift arm）',   en:'Capitals (Shift arm)',   gen:()=>pickN([...LETTERS],15).map(capitalTarget)},
+  {id:'ctl', ja:'制御キー',              en:'Control keys',           gen:()=>pickN(CTRL_KEYS,15).map(keyTarget)},
+  {id:'word',ja:'英単語',                en:'English words',          gen:()=>pickN(WORDS,10).map(wordTarget)},
+  {id:'mix', ja:'総合ランダム',          en:'Mixed random',           gen:()=>shuffle([
+      ...pickN([...LETTERS],12).map(charTarget),
+      ...pickN([...'0123456789'],4).map(charTarget),
+      ...pickN([...SYMS1,...SYMS2],4).map(charTarget)])},
+];
+
+/* ═══════════════ UI build ═══════════════ */
+const $=id=>document.getElementById(id);
+const SIM_KEYS_L=['a','s','d','f'], SIM_KEYS_R=['j','k','l',';'];
+function buildHands(){
+  for(const [el,side] of [[$('handL'),'L'],[$('handR'),'R']]){
+    el.querySelectorAll('.key').forEach(k=>k.remove());
+    const rev=(side==='L'?$('revL'):$('revR')).checked;
+    const order=rev?[4,3,2,1]:[1,2,3,4];
+    for(const sw of order){
+      const bit = side==='L' ? 8-sw : 4-sw;
+      const bind = side==='L' ? SIM_KEYS_L[sw-1] : SIM_KEYS_R[sw-1];
+      const d=document.createElement('div');
+      d.className='key';d.dataset.bit=bit;
+      d.innerHTML=`<span class="sw">SW${sw}</span><span class="bind">${mode==='sim'?bind.toUpperCase():''}</span>`;
+      el.appendChild(d);
+    }
+  }
+  renderHints();setBitsUI();
+}
+function buildLeds(){
+  const c=$('leds');c.innerHTML='';
+  for(let b=7;b>=0;b--){
+    if(b===3){const g=document.createElement('span');g.className='gap';c.appendChild(g);}
+    const d=document.createElement('div');d.className='led';d.dataset.bit=b;c.appendChild(d);
+  }
+}
+function buildLessonSelect(){
+  const sel=$('lesson');const keep=sel.value;
+  sel.innerHTML='';
+  LESSONS.forEach(l=>{const o=document.createElement('option');o.value=l.id;o.textContent=l[lang];sel.appendChild(o);});
+  if(keep)sel.value=keep;
+}
+function buildRef(){
+  const c=t('refCols');
+  const rows=Object.keys(KEYMAP).map(k=>+k).sort((a,b)=>a-b).map(m=>{
+    const e=KEYMAP[m];
+    const bits=m.toString(2).padStart(8,'0').replace(/^(....)/,'$1 ');
+    return `<tr><td>0x${m.toString(16).toUpperCase().padStart(2,'0')}</td><td>${bits}</td><td>${esc(e.base)}</td><td>${esc(e.shift)}</td><td>${esc(e.ctrl)}</td></tr>`;
+  }).join('');
+  $('refTable').innerHTML=`<table><tr>${c.map(x=>`<th>${x}</th>`).join('')}</tr>${rows}</table>`;
+}
+const esc=s=>s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'):'';
+
+/* ═══════════════ state ═══════════════ */
+let mode='sim';
+let session=null;
+let lastSummary=null;
+let armed=null;
+let heldBits=0, accumMask=0, heldKeys=new Set();
+
+/* ═══════════════ language ═══════════════ */
+function applyLang(){
+  document.documentElement.lang=lang;
+  $('langJa').classList.toggle('on',lang==='ja');
+  $('langEn').classList.toggle('on',lang==='en');
+  $('modeSim').textContent=t('modeSim');
+  $('modeDev').textContent=t('modeDev');
+  const hm=$('hintMode');
+  hm.options[0].text=t('hintAlways');hm.options[1].text=t('hintMiss');hm.options[2].text=t('hintOff');
+  $('startBtn').textContent=t('start');
+  $('revLTxt').textContent=t('revL');$('revRTxt').textContent=t('revR');
+  $('hlL').textContent=t('handL');$('hlR').textContent=t('handR');
+  $('kAcc').textContent=t('kAcc');$('kCpm').textContent=t('kCpm');
+  $('kStreak').textContent=t('kStreak');$('kMiss').textContent=t('kMiss');
+  $('helpSummary').textContent=t('helpSummary');
+  $('helpBody').innerHTML=t('helpBody');
+  $('refSummary').textContent=t('refSummary');
+  $('csvSummary').textContent=t('csvSummary');
+  $('csvDesc').textContent=t('csvDesc');
+  $('csvApply').textContent=t('apply');
+  buildLessonSelect();buildRef();
+  if(session){renderTarget();}
+  else{
+    $('sub').textContent=t('idle');
+    if(lastSummary)renderSummary();
+  }
+  if(mode==='dev'&&!session)$('msg').textContent=t('devHint');
+}
+$('langJa').onclick=()=>{lang='ja';applyLang();};
+$('langEn').onclick=()=>{lang='en';applyLang();};
+
+function setMode(m){
+  mode=m;
+  $('modeSim').classList.toggle('on',m==='sim');
+  $('modeDev').classList.toggle('on',m==='dev');
+  armed=null;updateArmed();
+  buildHands();
+  if(session)renderTarget();
+  $('msg').textContent = m==='dev' ? t('devHint') : '';
+}
+$('modeSim').onclick=()=>setMode('sim');
+$('modeDev').onclick=()=>setMode('dev');
+$('revL').onchange=$('revR').onchange=buildHands;
+
+/* ═══════════════ session ═══════════════ */
+$('startBtn').onclick=startSession;
+function startSession(){
+  const l=LESSONS.find(x=>x.id===$('lesson').value);
+  const targets=l.gen().filter(x=>x.seq.every(s=>s.mask!=null));
+  session={targets,idx:0,seqIdx:0,hits:0,misses:0,missBy:{},start:performance.now(),streak:0,missedThis:false};
+  armed=null;updateArmed();
+  lastSummary=null;$('summary').style.display='none';
+  renderTarget();updateStats();
+  $('msg').textContent = mode==='dev' ? t('devStart') : '';
+  document.body.focus();
+}
+function cur(){return session.targets[session.idx];}
+function expectedStep(){return cur().seq[session.seqIdx];}
+
+function renderTarget(){
+  if(!session)return;
+  const tg=cur();
+  if(tg.word){
+    const done=[...tg.label].slice(0,session.seqIdx).join('');
+    const c=tg.label[session.seqIdx]||'';
+    const rest=[...tg.label].slice(session.seqIdx+1).join('');
+    $('glyph').innerHTML=`<span class="done">${esc(done)}</span><span class="cur">${esc(c)}</span><span class="rest">${esc(rest)}</span>`;
+  }else{
+    $('glyph').textContent=tg.label;
+  }
+  const step=expectedStep();
+  const hx='0x'+step.mask.toString(16).toUpperCase().padStart(2,'0');
+  const isArmStep = tg.seq.length>1 && session.seqIdx===0 && KEYMAP[step.mask] && String(KEYMAP[step.mask].base).startsWith('mod:');
+  $('sub').innerHTML =
+    (tg.seq.length>1 ? t('step')(session.seqIdx+1,tg.seq.length,isArmStep?t('stepArm'):t('stepChar')) : '')
+    + t('chordLbl')(hx)
+    + `　${session.idx+1} / ${session.targets.length}`;
+  renderHints();
+  $('progBar').style.width=(session.idx/session.targets.length*100)+'%';
+}
+function hintVisible(){
+  const hm=$('hintMode').value;
+  return hm==='always'||(hm==='miss'&&session&&session.missedThis);
+}
+function renderHints(){
+  const show=session&&hintVisible();
+  const mask=show?expectedStep().mask:0;
+  document.querySelectorAll('.key').forEach(k=>{
+    k.classList.toggle('hint',show&&!!(mask&(1<<+k.dataset.bit)));
+  });
+  document.querySelectorAll('.led').forEach(l=>{
+    l.classList.toggle('hint-on',show&&!!(mask&(1<<+l.dataset.bit)));
+  });
+}
+function updateArmed(){
+  $('armedBadge').textContent=(armed||'').toUpperCase()+' ARMED';
+  $('armedBadge').classList.toggle('show',!!armed);
+}
+function updateStats(){
+  if(!session)return;
+  const total=session.hits+session.misses;
+  $('stAcc').textContent=total?Math.round(session.hits/total*100)+'%':'–';
+  const min=(performance.now()-session.start)/60000;
+  $('stCpm').textContent=min>0.02?Math.round(session.hits/min):'–';
+  $('stStreak').textContent=session.streak;
+  $('stMiss').textContent=session.misses;
+}
+
+function judge(ok, detail){
+  const card=$('targetCard');
+  if(ok){
+    session.hits++;session.streak++;
+    card.classList.remove('flash-err');void card.offsetWidth;card.classList.add('flash-ok');
+    session.seqIdx++;
+    if(session.seqIdx>=cur().seq.length){
+      session.idx++;session.seqIdx=0;session.missedThis=false;
+      if(session.idx>=session.targets.length){finish();return;}
+    }
+    $('msg').textContent='';
+  }else{
+    session.misses++;session.streak=0;session.missedThis=true;
+    const key=cur().label+(cur().word?`[${cur().label[session.seqIdx]}]`:'');
+    session.missBy[key]=(session.missBy[key]||0)+1;
+    card.classList.remove('flash-ok');void card.offsetWidth;card.classList.add('flash-err');
+    $('msg').innerHTML=`<span class="err">${t('missPrefix')}${detail||''}</span>`;
+  }
+  updateStats();renderTarget();
+}
+function finish(){
+  const min=(performance.now()-session.start)/60000;
+  const total=session.hits+session.misses;
+  lastSummary={
+    hits:session.hits,misses:session.misses,
+    acc:Math.round(session.hits/total*100),
+    cpm:Math.round(session.hits/min),
+    worst:Object.entries(session.missBy).sort((a,b)=>b[1]-a[1]).slice(0,5),
+  };
+  session=null;
+  renderSummary();
+  $('progBar').style.width='100%';
+  $('glyph').textContent='✓';
+  $('sub').textContent=t('done');
+}
+function renderSummary(){
+  const s=lastSummary;if(!s)return;
+  $('summary').innerHTML=`<h2>${t('sumTitle')}</h2>
+    <p>${t('sumLine')(s.hits,s.misses,s.acc,s.cpm)}</p>
+    ${s.worst.length?`<p style="margin-top:8px">${t('sumWorst')}</p>
+      <table>${s.worst.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v} ${t('sumMiss')}</td></tr>`).join('')}</table>`
+      :`<p style="margin-top:8px">${t('sumPerfect')}</p>`}
+    <p style="margin-top:12px"><button class="btn primary" onclick="startSession()">${t('again')}</button></p>`;
+  $('summary').style.display='block';
+}
+
+/* ═══════════════ sim-mode chord engine ═══════════════ */
+const SIM_BIT={};
+SIM_KEYS_L.forEach((k,i)=>SIM_BIT[k]=1<<(7-i));
+SIM_KEYS_R.forEach((k,i)=>SIM_BIT[k]=1<<(3-i));
+
+function setBitsUI(){
+  document.querySelectorAll('.key').forEach(k=>k.classList.toggle('press',!!(heldBits&(1<<+k.dataset.bit))));
+  document.querySelectorAll('.led').forEach(l=>l.classList.toggle('on',!!(heldBits&(1<<+l.dataset.bit))));
+  $('hexval').textContent='0x'+(heldBits||accumMask).toString(16).toUpperCase().padStart(2,'0');
+}
+function commitChord(mask){
+  if(!session){ $('hexval').textContent='0x'+mask.toString(16).toUpperCase().padStart(2,'0'); return; }
+  const action=actionForMask(mask,armed);
+  const hx='0x'+mask.toString(16).toUpperCase().padStart(2,'0');
+  if(action&&action.startsWith('mod:')){
+    const step=expectedStep();
+    if(step.mask===mask){ armed=action.slice(4);updateArmed();judge(true);return; }
+    armed=action.slice(4);updateArmed();
+    judge(false,t('needlessArm')(hx,esc(action)));return;
+  }
+  if(action==='key:ESC'&&armed){ armed=null;updateArmed();$('msg').textContent=t('armCancel');return; }
+  const step=expectedStep();
+  const wantAction=actionForMask(step.mask, step.armed||null);
+  const ok = mask===step.mask && (step.armed||null)===armed;
+  if(armed){armed=null;updateArmed();}
+  judge(ok, ok?null:t('wrongChord')(hx,esc(action||t('unassigned')),esc(wantAction||'')));
+}
+window.addEventListener('keydown',e=>{
+  if(mode!=='sim')return;
+  const k=e.key.toLowerCase();
+  if(!(k in SIM_BIT))return;
+  e.preventDefault();
+  if(e.repeat)return;
+  heldKeys.add(k);heldBits|=SIM_BIT[k];accumMask|=SIM_BIT[k];setBitsUI();
+});
+window.addEventListener('keyup',e=>{
+  if(mode!=='sim')return;
+  const k=e.key.toLowerCase();
+  if(!(k in SIM_BIT))return;
+  e.preventDefault();
+  heldKeys.delete(k);heldBits&=~SIM_BIT[k];setBitsUI();
+  if(heldKeys.size===0&&accumMask){const m=accumMask;accumMask=0;commitChord(m);setBitsUI();}
+});
+window.addEventListener('blur',()=>{heldKeys.clear();heldBits=0;accumMask=0;setBitsUI();});
+
+/* ═══════════════ device-mode input ═══════════════ */
+window.addEventListener('keydown',e=>{
+  if(mode!=='dev'||!session)return;
+  if(e.isComposing){$('msg').innerHTML=`<span class="err">${t('imeOn')}</span>`;return;}
+  const tg=cur(),exp=tg.deviceExpect;
+  const NAMED=['Tab','Backspace','Escape','Delete','Enter','ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '];
+  if(['Shift','Control','Alt','Meta'].includes(e.key))return;
+  if(NAMED.includes(e.key))e.preventDefault();
+  if(exp.type==='key'){
+    judge(e.key===exp.v,t('inputWas')(esc(e.key)));return;
+  }
+  if(e.key.length!==1)return;
+  e.preventDefault();
+  if(exp.type==='char'){ judge(e.key===exp.v,t('inputWant')(esc(e.key),esc(exp.v))); return; }
+  if(exp.type==='word'){
+    const want=tg.label[session.seqIdx];
+    judge(e.key===want,t('inputWant')(esc(e.key),esc(want)));
+  }
+});
+
+/* ═══════════════ CSV replace ═══════════════ */
+$('csvBox').value='';
+$('csvApply').onclick=()=>{
+  try{
+    const m=parseKeymap($('csvBox').value);
+    if(Object.keys(m).length<10)throw new Error('rows too few');
+    KEYMAP=m;buildRef();session=null;
+    $('csvMsg').textContent=t('csvOk')(Object.keys(m).length);
+    $('csvMsg').style.color='var(--ok)';
+  }catch(err){
+    $('csvMsg').textContent=t('csvErr');
+    $('csvMsg').style.color='var(--err)';
+  }
+};
+
+/* ═══════════════ init ═══════════════ */
+buildLeds();buildHands();applyLang();setBitsUI();
+</script>
+</body>
+</html>
