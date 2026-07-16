@@ -2,7 +2,9 @@
   "name": "peaky8bit-typing-app",
   "compatibility_date": "2026-07-06",
   "workers_dev": true,
+  "main": "src/index.js",
   "assets": {
-    "directory": "./"
+    "directory": "./public",
+    "binding": "ASSETS"
   }
 }
