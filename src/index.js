@@ -1,21 +1,26 @@
 export default {
   async fetch(request, env) {
-    // 静的アセットから元のレスポンスを取得
+    // デバッグ: Workerが動いているか確認
     const response = await env.ASSETS.fetch(request);
-
-    // HTMLでなければそのまま返す
     const contentType = response.headers.get("content-type") || "";
+
     if (!contentType.includes("text/html")) {
       return response;
     }
 
-    // GA4の測定IDが未設定ならそのまま返す
+    // Workerが動いてることを示すヘッダーを追加
+    const newResponse = new Response(response.body, response);
+    newResponse.headers.set("X-Worker-Active", "true");
+
     const gaId = env.GA_MEASUREMENT_ID;
     if (!gaId) {
-      return response;
+      // GAのIDが取れてない場合もヘッダーで知らせる
+      newResponse.headers.set("X-GA-Status", "no-measurement-id");
+      return newResponse;
     }
 
-    // HTMLRewriterで </head> の直前にGA4タグを注入
+    newResponse.headers.set("X-GA-Status", "injecting-" + gaId);
+
     const gaSnippet = `
 <script async src="https://www.googletagmanager.com/gtag/js?id=${gaId}"></script>
 <script>
@@ -31,6 +36,6 @@ export default {
           element.append(gaSnippet, { html: true });
         },
       })
-      .transform(response);
+      .transform(newResponse);
   },
 };
