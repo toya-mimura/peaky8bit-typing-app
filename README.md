@@ -46,6 +46,7 @@ Or connect the repo to a Workers project in the Cloudflare dashboard with deploy
 実機を組み立てる前でも後でも、ブラウザだけでchord入力を練習できます。インストール不要・ビルド不要、HTMLファイル1枚で動きます。
 
 **▶ デモ: https://peaky8bit-typing-app.twc4.workers.dev**
+- このURLはのちに変更する可能性があります。
 
 ## 特徴
 
